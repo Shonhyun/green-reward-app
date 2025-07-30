@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1024622849606",
+    "project_id": "green-rewards-ae329",
+    "storage_bucket": "green-rewards-ae329.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1024622849606:android:e34a223f86345420d12447",
+        "android_client_info": {
+          "package_name": "com.example.green_rewards_v1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDslKcef5sJQk2LuGegJTVy6nAfM-jxcug"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

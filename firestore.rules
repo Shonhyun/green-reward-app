@@ -1,0 +1,78 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    match /admins/{adminId} {
+      allow read, write: if request.auth != null && request.auth.uid == adminId;
+    }
+    
+    match /users/{userId} {
+      allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    match /rewards/{rewardId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    match /transactions/{transactionId} {
+      // Allow users to read and create their own transactions
+      allow read, create: if request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      allow read, create: if request.auth != null && 
+        request.auth.uid == request.resource.data.userId;
+      
+      // Allow admins to read, create, update, delete all transactions
+      allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    // Forum posts - allow authenticated users to read all posts and create their own
+    match /forum_posts/{postId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.userId;
+      allow update: if request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      allow delete: if request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      
+      // Allow admins to read, write all forum posts
+      allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    // Comments on forum posts
+    match /forum_posts/{postId}/comments/{commentId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.userId;
+      allow update: if request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      allow delete: if request.auth != null && 
+        request.auth.uid == resource.data.userId;
+      
+      // Allow admins to read, write all comments
+      allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    // Reports - allow authenticated users to create reports
+    match /reports/{reportId} {
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.reportedBy;
+      
+      // Allow admins to read, write all reports
+      allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    match /password_resets/{email} {
+      allow read, write, delete: if true;
+    }
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+} 
