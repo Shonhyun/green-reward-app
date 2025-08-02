@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
-import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import '../services/user_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -14,8 +12,8 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _rememberMe = false;
   bool _isLoading = false;
+  bool _obscurePassword = true;
   String? _errorMessage;
 
   Future<void> _signInWithEmail() async {
@@ -40,108 +38,6 @@ class _LoginScreenState extends State<LoginScreen> {
     } on FirebaseAuthException catch (e) {
       setState(() {
         _errorMessage = e.message;
-      });
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _signInWithGoogle() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    try {
-      final GoogleAuthProvider googleProvider = GoogleAuthProvider();
-      googleProvider.addScope('email');
-      googleProvider.addScope('profile');
-      final userCredential = await FirebaseAuth.instance.signInWithProvider(googleProvider);
-      
-      // Create or get user data in Firestore
-      if (userCredential.user != null) {
-        await UserService.createOrGetUser(userCredential.user!);
-      }
-      
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _signInWithFacebook() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    try {
-      final LoginResult result = await FacebookAuth.instance.login();
-      if (result.status == LoginStatus.success) {
-        final OAuthCredential credential = FacebookAuthProvider.credential(result.accessToken!.tokenString);
-        final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
-        
-        // Create or get user data in Firestore
-        if (userCredential.user != null) {
-          await UserService.createOrGetUser(userCredential.user!);
-        }
-        
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, '/home');
-        }
-      } else {
-        setState(() {
-          _errorMessage = 'Facebook sign-in failed';
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _signInWithApple() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    try {
-      final appleCredential = await SignInWithApple.getAppleIDCredential(
-        scopes: [
-          AppleIDAuthorizationScopes.email,
-          AppleIDAuthorizationScopes.fullName,
-        ],
-      );
-      final oauthCredential = OAuthProvider("apple.com").credential(
-        idToken: appleCredential.identityToken,
-        accessToken: appleCredential.authorizationCode,
-      );
-      final userCredential = await FirebaseAuth.instance.signInWithCredential(oauthCredential);
-      
-      // Create or get user data in Firestore
-      if (userCredential.user != null) {
-        await UserService.createOrGetUser(userCredential.user!);
-      }
-      
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
       });
     } finally {
       setState(() {
@@ -265,58 +161,29 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               _buildTextField(
                                 controller: _emailController,
-                                hintText: 'abc@gmail.com',
+                                hintText: 'Email',
                                 icon: Icons.email_outlined,
                               ),
                               const SizedBox(height: 16),
-                              _buildTextField(
+                              _buildPasswordTextField(
                                 controller: _passwordController,
-                                hintText: '••••••••',
+                                hintText: 'Password',
                                 icon: Icons.lock_outline,
-                                obscureText: true,
                               ),
                               const SizedBox(height: 16),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: Checkbox(
-                                          value: _rememberMe,
-                                          onChanged: (value) {
-                                            setState(() {
-                                              _rememberMe = value ?? false;
-                                            });
-                                          },
-                                          activeColor: const Color(0xFF4CAF50),
-                                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        'Remember me',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  GestureDetector(
-                                    onTap: () => Navigator.pushNamed(context, '/forgot-password'),
-                                    child: const Text(
-                                      'Forgot Password?',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Color(0xFF2196F3),
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: GestureDetector(
+                                  onTap: () => Navigator.pushNamed(context, '/forgot-password'),
+                                  child: const Text(
+                                    'Forgot Password?',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Color(0xFF2196F3),
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                ],
+                                ),
                               ),
                               const SizedBox(height: 24),
                               SizedBox(
@@ -343,43 +210,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                           ),
                                         ),
                                 ),
-                              ),
-                              const SizedBox(height: 24),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Divider(
-                                      color: Colors.grey[300],
-                                      thickness: 1,
-                                    ),
-                                  ),
-                                  const Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 16),
-                                    child: Text(
-                                      'or',
-                                      style: TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Divider(
-                                      color: Colors.grey[300],
-                                      thickness: 1,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 24),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  _buildSocialButton('G', const Color(0xFFDB4437), _signInWithGoogle),
-                                  _buildSocialButton('f', const Color(0xFF4267B2), _signInWithFacebook),
-                                  _buildSocialButton('', Colors.black, _signInWithApple),
-                                ],
                               ),
                               const SizedBox(height: 24),
                               Center(
@@ -457,34 +287,43 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildSocialButton(String text, Color color, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: _isLoading ? null : onTap,
-      child: Container(
-        width: 56,
-        height: 56,
+  Widget _buildPasswordTextField({
+    required TextEditingController controller,
+    required String hintText,
+    required IconData icon,
+  }) {
+    return Container(
         decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
+        color: const Color(0xFFF5F5F5),
+        borderRadius: BorderRadius.circular(25),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.2),
+            color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 6,
-              offset: const Offset(0, 3),
+            offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Center(
-          child: text.isEmpty
-              ? const Icon(Icons.apple, color: Colors.white, size: 28)
-              : Text(
-                  text,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+      child: TextField(
+        controller: controller,
+        obscureText: _obscurePassword,
+        decoration: InputDecoration(
+          hintText: hintText,
+          hintStyle: const TextStyle(color: Colors.black54),
+          prefixIcon: Icon(icon, color: const Color(0xFF4CAF50)),
+          suffixIcon: IconButton(
+            icon: Icon(
+              _obscurePassword ? Icons.visibility_off : Icons.visibility,
+              color: const Color(0xFF4CAF50),
+            ),
+            onPressed: () {
+              setState(() {
+                _obscurePassword = !_obscurePassword;
+              });
+            },
+          ),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         ),
       ),
     );

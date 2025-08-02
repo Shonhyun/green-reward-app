@@ -9,6 +9,7 @@ import 'package:green_rewards_v1/screen/report_forums_screen.dart';
 import 'package:green_rewards_v1/screen/rewards_screen.dart';
 import 'package:green_rewards_v1/screen/sign_up_screen.dart';
 import 'package:green_rewards_v1/screen/transactions_screen.dart';
+import 'package:green_rewards_v1/screen/forgot_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,8 +42,9 @@ class MainApp extends StatelessWidget {
       routes: {
         '/signup': (context) => const SignUpScreen(),
         '/login': (context) => const LoginScreen(),
+        '/forgot-password': (context) => const ForgotScreen(),
         '/get-started': (context) => const GetStartedScreen(),
-        '/home': (context) => const HomeScreen(),
+        '/home': (context) => const HomeScreen(), 
         '/rewards': (context) => const RewardsScreen(),
         '/report-forum': (context) => const ReportForumScreen(),
         '/profile': (context) => const ProfileScreen(),

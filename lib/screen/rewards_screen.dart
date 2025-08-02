@@ -17,11 +17,19 @@ class _RewardsScreenState extends State<RewardsScreen> {
       FirebaseFirestore.instance.collection('rewards');
   int _userPoints = 0;
   bool _isLoadingPoints = true;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _fetchUserPoints();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchUserPoints() async {
@@ -30,6 +38,18 @@ class _RewardsScreenState extends State<RewardsScreen> {
       _userPoints = points;
       _isLoadingPoints = false;
     });
+  }
+
+  Stream<QuerySnapshot> _getFilteredRewardsStream() {
+    if (_searchQuery.isEmpty) {
+      return _rewardsCollection.snapshots();
+    } else {
+      // Filter rewards based on search query
+      return _rewardsCollection
+          .where('name', isGreaterThanOrEqualTo: _searchQuery)
+          .where('name', isLessThan: _searchQuery + '\uf8ff')
+          .snapshots();
+    }
   }
 
   @override
@@ -66,7 +86,8 @@ class _RewardsScreenState extends State<RewardsScreen> {
                       icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF222B45), size: 26),
                       splashRadius: 22,
                     ),
-                    const Icon(Icons.person_outline, color: Color(0xFF222B45), size: 28),
+                    // Removed profile icon
+                    const SizedBox(width: 48), // Add spacing to center the title
                   ],
                 ),
               ),
@@ -112,14 +133,31 @@ class _RewardsScreenState extends State<RewardsScreen> {
                     ],
                     border: Border.all(color: const Color(0xFFE0E6ED)),
                   ),
-                  child: const TextField(
+                  child: TextField(
+                    controller: _searchController,
                     decoration: InputDecoration(
                       hintText: 'Search rewards',
-                      hintStyle: TextStyle(color: Color(0xFFB0B7C3), fontSize: 16, fontWeight: FontWeight.w500),
-                      prefixIcon: Icon(Icons.search, color: Color(0xFFB0B7C3), size: 22),
+                      hintStyle: const TextStyle(color: Color(0xFFB0B7C3), fontSize: 16, fontWeight: FontWeight.w500),
+                      prefixIcon: const Icon(Icons.search, color: Color(0xFFB0B7C3), size: 22),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, color: Color(0xFFB0B7C3)),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() {
+                                  _searchQuery = '';
+                                });
+                              },
+                            )
+                          : null,
                       border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(vertical: 14.0, horizontal: 18.0),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 14.0, horizontal: 18.0),
                     ),
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                      });
+                    },
                   ),
                 ),
               ),
@@ -145,7 +183,7 @@ class _RewardsScreenState extends State<RewardsScreen> {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
                 child: StreamBuilder<QuerySnapshot>(
-                  stream: _rewardsCollection.snapshots(),
+                  stream: _getFilteredRewardsStream(),
                   builder: (context, snapshot) {
                     if (snapshot.hasError) {
                       return const Center(child: Text('Error loading rewards'));
@@ -155,7 +193,41 @@ class _RewardsScreenState extends State<RewardsScreen> {
                     }
                     final rewards = snapshot.data!.docs;
                         if (rewards.isEmpty) {
-                          return const Center(child: Text('No rewards available'));
+                          return Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  _searchQuery.isNotEmpty ? Icons.search_off : Icons.card_giftcard,
+                                  size: 64,
+                                  color: Colors.grey.shade400,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  _searchQuery.isNotEmpty 
+                                      ? 'No rewards found for "$_searchQuery"'
+                                      : 'No rewards available',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.grey.shade600,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                if (_searchQuery.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Try a different search term',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          );
                         }
                         return GridView.builder(
                           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(

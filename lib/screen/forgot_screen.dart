@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ForgotScreen extends StatefulWidget {
   const ForgotScreen({super.key});
@@ -9,6 +10,98 @@ class ForgotScreen extends StatefulWidget {
 
 class _ForgotScreenState extends State<ForgotScreen> {
   final _emailController = TextEditingController();
+  bool _isLoading = false;
+  String? _message;
+  bool _isSuccess = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _resetPassword() async {
+    if (_emailController.text.trim().isEmpty) {
+      setState(() {
+        _message = 'Please enter your email address';
+        _isSuccess = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _message = null;
+    });
+
+    try {
+      // Send password reset email with retry mechanism
+      await _sendPasswordResetWithRetry();
+      
+      setState(() {
+        _isLoading = false;
+        _message = 'Password reset email sent! Check your inbox.';
+        _isSuccess = true;
+      });
+      
+      // Clear the email field after successful reset
+      _emailController.clear();
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        _isLoading = false;
+        _isSuccess = false;
+        
+        switch (e.code) {
+          case 'user-not-found':
+            _message = 'No user found with this email address.';
+            break;
+          case 'invalid-email':
+            _message = 'Please enter a valid email address.';
+            break;
+          case 'too-many-requests':
+            _message = 'Too many attempts. Please try again later.';
+            break;
+          case 'recaptcha-not-enabled':
+          case 'recaptcha-check-failed':
+            _message = 'Security verification required. Please try again.';
+            break;
+          default:
+            _message = 'An error occurred. Please try again.';
+        }
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _message = 'An unexpected error occurred. Please try again.';
+        _isSuccess = false;
+      });
+    }
+  }
+
+  Future<void> _sendPasswordResetWithRetry() async {
+    int maxRetries = 3;
+    int currentRetry = 0;
+    
+    while (currentRetry < maxRetries) {
+      try {
+        await FirebaseAuth.instance.sendPasswordResetEmail(
+          email: _emailController.text.trim(),
+        );
+        return; // Success, exit the retry loop
+      } on FirebaseAuthException catch (e) {
+        currentRetry++;
+        
+        // If it's a reCAPTCHA error and we haven't exceeded retries, wait and try again
+        if ((e.code == 'recaptcha-not-enabled' || e.code == 'recaptcha-check-failed') && currentRetry < maxRetries) {
+          await Future.delayed(Duration(seconds: currentRetry * 2)); // Exponential backoff
+          continue;
+        }
+        
+        // Re-throw the exception if it's not a reCAPTCHA error or we've exceeded retries
+        rethrow;
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +132,7 @@ class _ForgotScreenState extends State<ForgotScreen> {
                       icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
                       padding: const EdgeInsets.all(8),
                       style: IconButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.1),
+                        backgroundColor: Colors.white.withValues(alpha: 0.1),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -79,7 +172,7 @@ class _ForgotScreenState extends State<ForgotScreen> {
                       const SizedBox(height: 24),
                       Card(
                         elevation: 4,
-                        shadowColor: Colors.black.withOpacity(0.2),
+                        shadowColor: Colors.black.withValues(alpha: 0.2),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -139,11 +232,48 @@ class _ForgotScreenState extends State<ForgotScreen> {
                                 hintText: 'abc@gmail.com',
                                 icon: Icons.email_outlined,
                               ),
+                              if (_message != null) ...[
+                                const SizedBox(height: 16),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: _isSuccess 
+                                        ? Colors.green.withValues(alpha: 0.1)
+                                        : Colors.red.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: _isSuccess 
+                                          ? Colors.green.withValues(alpha: 0.3)
+                                          : Colors.red.withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        _isSuccess ? Icons.check_circle : Icons.error,
+                                        color: _isSuccess ? Colors.green : Colors.red,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          _message!,
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: _isSuccess ? Colors.green[700] : Colors.red[700],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 24),
                               SizedBox(
                                 width: double.infinity,
                                 child: ElevatedButton(
-                                  onPressed: () {},
+                                  onPressed: _isLoading ? null : _resetPassword,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: const Color(0xFF4CAF50),
                                     padding: const EdgeInsets.symmetric(vertical: 16),
@@ -151,14 +281,37 @@ class _ForgotScreenState extends State<ForgotScreen> {
                                       borderRadius: BorderRadius.circular(25),
                                     ),
                                     elevation: 2,
-                                    shadowColor: Colors.black.withOpacity(0.3),
+                                    shadowColor: Colors.black.withValues(alpha: 0.3),
                                   ),
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                          height: 20,
+                                          width: 20,
+                                          child: CircularProgressIndicator(
+                                            color: Colors.white,
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Text(
+                                          'Send Reset Link',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Center(
+                                child: GestureDetector(
+                                  onTap: () => Navigator.pop(context),
                                   child: const Text(
-                                    'Submit',
+                                    'Back to Login',
                                     style: TextStyle(
-                                      fontSize: 16,
+                                      fontSize: 14,
+                                      color: Color(0xFF2196F3),
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.white,
                                     ),
                                   ),
                                 ),
@@ -191,7 +344,7 @@ class _ForgotScreenState extends State<ForgotScreen> {
         borderRadius: BorderRadius.circular(25),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -200,6 +353,7 @@ class _ForgotScreenState extends State<ForgotScreen> {
       child: TextField(
         controller: controller,
         obscureText: obscureText,
+        keyboardType: TextInputType.emailAddress,
         decoration: InputDecoration(
           hintText: hintText,
           hintStyle: const TextStyle(color: Colors.black54),

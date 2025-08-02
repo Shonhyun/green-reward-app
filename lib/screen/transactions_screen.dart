@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../services/transaction_service.dart';
 import 'dart:convert';
+import 'transaction_preview_screen.dart'; // Add this import
 
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
@@ -13,6 +15,20 @@ class TransactionsScreen extends StatefulWidget {
 class _TransactionsScreenState extends State<TransactionsScreen> {
   String _selectedFilter = 'all'; // 'all', 'used', 'earned'
   String _searchQuery = '';
+  Stream<QuerySnapshot>? _transactionsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    print(' TransactionsScreen initialized');
+    _initializeTransactionsStream();
+  }
+
+  void _initializeTransactionsStream() {
+    print('🔄 Initializing transactions stream...');
+    _transactionsStream = TransactionService.getUserTransactions();
+    print('✅ Transactions stream initialized');
+  }
 
   // Format date for display
   String _formatDate(DateTime date) {
@@ -132,219 +148,243 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               
               // Transactions List
               Expanded(
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: TransactionService.getUserTransactions(),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      print('Transaction stream error: ${snapshot.error}');
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                              size: 64,
-                              color: Colors.white.withOpacity(0.7),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Error loading transactions',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
-                                fontSize: 18,
-                                fontWeight: FontWeight.w500,
+                child: _transactionsStream != null
+                    ? StreamBuilder<QuerySnapshot>(
+                        stream: _transactionsStream,
+                        builder: (context, snapshot) {
+                          if (snapshot.hasError) {
+                            print('❌ Transaction stream error: ${snapshot.error}');
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.error_outline,
+                                    size: 64,
+                                    color: Colors.white.withOpacity(0.7),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'Error loading transactions',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.8),
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Please check your connection',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.6),
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _initializeTransactionsStream();
+                                      });
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.white.withOpacity(0.2),
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: const Text('Retry'),
+                                  ),
+                                ],
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Please check your connection',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.6),
-                                fontSize: 14,
+                            );
+                          }
+                          
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 3,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'Loading transactions...',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.8),
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                           const SizedBox(height: 16),
-                           ElevatedButton(
-                             onPressed: () {
-                               setState(() {
-                                 // Force rebuild
-                               });
-                             },
-                             style: ElevatedButton.styleFrom(
-                               backgroundColor: Colors.white.withOpacity(0.2),
-                               foregroundColor: Colors.white,
-                               shape: RoundedRectangleBorder(
-                                 borderRadius: BorderRadius.circular(12),
-                               ),
-                             ),
-                             child: const Text('Retry'),
-                           ),
-                          ],
-                        ),
-                      );
-                    }
-                    
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 3,
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Loading transactions...',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
+                            );
+                          }
+                          
+                          final transactions = snapshot.data?.docs ?? [];
+                          print('📊 Loaded ${transactions.length} transactions from stream');
+                          
+                          // Debug: Print each transaction
+                          for (var doc in transactions) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            print(' Transaction in UI: ${data['transactionId']} - ${data['rewardName']} - ${data['createdAt']}');
+                          }
+                          
+                          if (transactions.isEmpty) {
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(20),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Icon(
+                                      Icons.receipt_long,
+                                      size: 64,
+                                      color: Colors.white.withOpacity(0.7),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'No transactions yet',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.8),
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Your purchase history will appear here',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.6),
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      Navigator.pushNamed(context, '/rewards');
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.white.withOpacity(0.2),
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: const Text('Browse Rewards'),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                    
-                    final transactions = snapshot.data?.docs ?? [];
-                    print('Loaded ${transactions.length} transactions');
-                    
-                    if (transactions.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(20),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(20),
+                            );
+                          }
+                          
+                          // Filter and search transactions
+                          final filteredTransactions = transactions.where((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final rewardName = (data['rewardName'] ?? '').toString().toLowerCase();
+                            final points = data['totalCost'] ?? 0;
+                            
+                            // Apply search filter
+                            if (_searchQuery.isNotEmpty && !rewardName.contains(_searchQuery)) {
+                              return false;
+                            }
+                            
+                            // Apply category filter
+                            if (_selectedFilter == 'all') return true;
+                            if (_selectedFilter == 'used') return points > 0;
+                            if (_selectedFilter == 'earned') return points == 0;
+                            return false;
+                          }).toList();
+                          
+                          print('🔍 Filtered to ${filteredTransactions.length} transactions');
+                          
+                          // Sort transactions by date (newest first)
+                          filteredTransactions.sort((a, b) {
+                            final aData = a.data() as Map<String, dynamic>;
+                            final bData = b.data() as Map<String, dynamic>;
+                            final aDate = aData['createdAt'] as Timestamp?;
+                            final bDate = bData['createdAt'] as Timestamp?;
+                            
+                            if (aDate == null && bDate == null) return 0;
+                            if (aDate == null) return 1;
+                            if (bDate == null) return -1;
+                            
+                            return bDate.compareTo(aDate); // Newest first
+                          });
+                          
+                          if (filteredTransactions.isEmpty) {
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.search_off,
+                                    size: 64,
+                                    color: Colors.white.withOpacity(0.7),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'No transactions found',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.8),
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Try adjusting your search or filters',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.6),
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              child: Icon(
-                                Icons.receipt_long,
-                                size: 64,
-                                color: Colors.white.withOpacity(0.7),
-                              ),
+                            );
+                          }
+                          
+                          return RefreshIndicator(
+                            onRefresh: () async {
+                              // Reinitialize the stream
+                              setState(() {
+                                _initializeTransactionsStream();
+                              });
+                            },
+                            color: const Color(0xFF4CAF50),
+                            child: ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
+                              itemCount: filteredTransactions.length,
+                              itemBuilder: (context, index) {
+                                final doc = filteredTransactions[index];
+                                final data = doc.data() as Map<String, dynamic>;
+                                return GestureDetector(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => TransactionPreviewScreen(transactionData: data),
+                                      ),
+                                    );
+                                  },
+                                  child: _buildTransactionCard(data),
+                                );
+                              },
                             ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No transactions yet',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
-                                fontSize: 18,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Your purchase history will appear here',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.6),
-                                fontSize: 14,
-                              ),
-                            ),
-                           const SizedBox(height: 16),
-                           ElevatedButton(
-                             onPressed: () {
-                               Navigator.pushNamed(context, '/rewards');
-                             },
-                             style: ElevatedButton.styleFrom(
-                               backgroundColor: Colors.white.withOpacity(0.2),
-                               foregroundColor: Colors.white,
-                               shape: RoundedRectangleBorder(
-                                 borderRadius: BorderRadius.circular(12),
-                               ),
-                             ),
-                             child: const Text('Browse Rewards'),
-                           ),
-                          ],
-                        ),
-                      );
-                    }
-                    
-                    // Filter and search transactions
-                    final filteredTransactions = transactions.where((doc) {
-                      final data = doc.data() as Map<String, dynamic>;
-                      final rewardName = (data['rewardName'] ?? '').toString().toLowerCase();
-                      final points = data['totalCost'] ?? 0;
-                      
-                      // Apply search filter
-                      if (_searchQuery.isNotEmpty && !rewardName.contains(_searchQuery)) {
-                        return false;
-                      }
-                      
-                      // Apply category filter
-                      if (_selectedFilter == 'all') return true;
-                      if (_selectedFilter == 'used') return points > 0;
-                      if (_selectedFilter == 'earned') return points == 0;
-                      return false;
-                    }).toList();
-                    
-                    // Sort transactions by date (newest first)
-                    filteredTransactions.sort((a, b) {
-                      final aData = a.data() as Map<String, dynamic>;
-                      final bData = b.data() as Map<String, dynamic>;
-                      final aDate = aData['createdAt'] as Timestamp?;
-                      final bDate = bData['createdAt'] as Timestamp?;
-                      
-                      if (aDate == null && bDate == null) return 0;
-                      if (aDate == null) return 1;
-                      if (bDate == null) return -1;
-                      
-                      return bDate.compareTo(aDate); // Newest first
-                    });
-                    
-                    if (filteredTransactions.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.search_off,
-                              size: 64,
-                              color: Colors.white.withOpacity(0.7),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No transactions found',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.8),
-                                fontSize: 18,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Try adjusting your search or filters',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.6),
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                    
-                    return RefreshIndicator(
-                      onRefresh: () async {
-                        // Trigger a rebuild
-                        setState(() {});
-                      },
-                      color: const Color(0xFF4CAF50),
-                      child: ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
-                        itemCount: filteredTransactions.length,
-                        itemBuilder: (context, index) {
-                          final doc = filteredTransactions[index];
-                          final data = doc.data() as Map<String, dynamic>;
-                          return _buildTransactionCard(data);
+                          );
                         },
+                      )
+                    : const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
                       ),
-                    );
-                  },
-                ),
               ),
               const SizedBox(height: 20),
             ],

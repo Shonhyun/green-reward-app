@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'user_service.dart';
 
 class ForumService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -14,9 +15,13 @@ class ForumService {
       final user = _auth.currentUser;
       if (user == null) return false;
 
+      // Get username from Firestore
+      final username = await UserService.getUserUsername();
+      final displayName = username.isNotEmpty ? username : (user.displayName ?? 'Anonymous User');
+
       await _firestore.collection('forum_posts').add({
         'userId': user.uid,
-        'userName': user.displayName ?? 'Anonymous User',
+        'userName': displayName,
         'userEmail': user.email ?? '',
         'content': content,
         'category': category,
@@ -41,23 +46,36 @@ class ForumService {
         .snapshots();
   }
 
-  // Get forum posts by category
+  // Get forum posts by category - simplified to avoid index issues
   static Stream<QuerySnapshot> getForumPostsByCategory(String category) {
     return _firestore
         .collection('forum_posts')
         .where('category', isEqualTo: category)
-        .orderBy('createdAt', descending: true)
         .snapshots();
   }
 
-  // Search forum posts
+  // Get categories
+  static List<String> getCategories() {
+    return [
+      'General Discussion',
+      'Waste Segregation Tips',
+      'Recycling Guide',
+      'Community Events',
+      'Questions & Help',
+      'Success Stories',
+      'Environmental News',
+    ];
+  }
+
+  // Enhanced search that works with current Firestore rules
   static Stream<QuerySnapshot> searchForumPosts(String searchQuery) {
+    if (searchQuery.isEmpty) {
+      return getForumPosts();
+    }
+    
+    // Use a simple approach that doesn't require complex indexes
     return _firestore
         .collection('forum_posts')
-        .where('content', isGreaterThanOrEqualTo: searchQuery)
-        .where('content', isLessThan: searchQuery + '\uf8ff')
-        .orderBy('content')
-        .orderBy('createdAt', descending: true)
         .snapshots();
   }
 
@@ -65,13 +83,24 @@ class ForumService {
   static Future<bool> upvotePost(String postId) async {
     try {
       final user = _auth.currentUser;
-      if (user == null) return false;
+      if (user == null) {
+        print('User not authenticated for upvote');
+        return false;
+      }
+
+      // Check if post exists first
+      final postDoc = await _firestore.collection('forum_posts').doc(postId).get();
+      if (!postDoc.exists) {
+        print('Post does not exist: $postId');
+        return false;
+      }
 
       await _firestore.collection('forum_posts').doc(postId).update({
         'upvotes': FieldValue.increment(1),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      print('Successfully upvoted post: $postId');
       return true;
     } catch (e) {
       print('Error upvoting post: $e');
@@ -83,13 +112,24 @@ class ForumService {
   static Future<bool> downvotePost(String postId) async {
     try {
       final user = _auth.currentUser;
-      if (user == null) return false;
+      if (user == null) {
+        print('User not authenticated for downvote');
+        return false;
+      }
+
+      // Check if post exists first
+      final postDoc = await _firestore.collection('forum_posts').doc(postId).get();
+      if (!postDoc.exists) {
+        print('Post does not exist: $postId');
+        return false;
+      }
 
       await _firestore.collection('forum_posts').doc(postId).update({
         'downvotes': FieldValue.increment(1),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      print('Successfully downvoted post: $postId');
       return true;
     } catch (e) {
       print('Error downvoting post: $e');
@@ -106,13 +146,17 @@ class ForumService {
       final user = _auth.currentUser;
       if (user == null) return false;
 
+      // Get username from Firestore
+      final username = await UserService.getUserUsername();
+      final displayName = username.isNotEmpty ? username : (user.displayName ?? 'Anonymous User');
+
       await _firestore
           .collection('forum_posts')
           .doc(postId)
           .collection('comments')
           .add({
         'userId': user.uid,
-        'userName': user.displayName ?? 'Anonymous User',
+        'userName': displayName,
         'comment': comment,
         'createdAt': FieldValue.serverTimestamp(),
       });
@@ -176,18 +220,5 @@ class ForumService {
       print('Error reporting post: $e');
       return false;
     }
-  }
-
-  // Get categories
-  static List<String> getCategories() {
-    return [
-      'General Discussion',
-      'Waste Segregation Tips',
-      'Recycling Guide',
-      'Community Events',
-      'Questions & Help',
-      'Success Stories',
-      'Environmental News',
-    ];
   }
 } 

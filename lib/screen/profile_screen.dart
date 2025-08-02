@@ -9,20 +9,33 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ProfileScreenState extends State<ProfileScreen> with TickerProviderStateMixin {
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
-  final _contactNumberController = TextEditingController();
   bool _isLoading = false;
   String? _errorMessage;
   User? _user;
   String _uniqueId = '';
   int _userPoints = 0;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic),
+    );
+    _animationController.forward();
     _fetchUserData();
   }
 
@@ -49,7 +62,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _firstNameController.text = userData?['firstName'] ?? '';
           _lastNameController.text = userData?['lastName'] ?? '';
           _emailController.text = _user!.email ?? '';
-          _contactNumberController.text = userData?['contactNumber'] ?? '';
           _uniqueId = uniqueId;
           _userPoints = points;
           _isLoading = false;
@@ -74,12 +86,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
         await UserService.updateUserProfile(
           firstName: _firstNameController.text.trim(),
           lastName: _lastNameController.text.trim(),
-          contactNumber: _contactNumberController.text.trim(),
         );
         
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Profile updated successfully!'),
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const SizedBox(width: 12),
+                const Text('Profile updated successfully!'),
+              ],
+            ),
+            backgroundColor: const Color(0xFF4CAF50),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.all(16),
           ),
         );
       }
@@ -95,6 +116,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _signOut() async {
+    // Show confirmation dialog
+    final shouldSignOut = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.logout, color: Colors.red, size: 24),
+            SizedBox(width: 12),
+            Text('Sign Out'),
+          ],
+        ),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Sign Out', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldSignOut != true) return;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -135,241 +188,251 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         child: SafeArea(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top Header
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+              // Enhanced Header
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    IconButton(
+                    _buildAnimatedButton(
                       onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
+                      icon: Icons.arrow_back,
+                      color: Colors.white.withValues(alpha: 0.2),
+                    ),
+                    const SizedBox(width: 16),
+                    const Expanded(
+                      child: Text(
+                        'Profile',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    _buildAnimatedButton(
+                      onPressed: _isLoading ? null : _saveProfile,
+                      icon: _isLoading ? null : Icons.save,
+                      color: Colors.white.withValues(alpha: 0.2),
+                      isLoading: _isLoading,
                     ),
                   ],
                 ),
               ),
-              // Account Title
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-                child: Text(
-                  'Account',
-                  style: const TextStyle(
-                    fontSize: 30,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              // Main Content Card
+              
+              // Main Content
               Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
+                child: FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: SlideTransition(
+                    position: _slideAnimation,
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(24.0),
-                    decoration: BoxDecoration(
+                      decoration: const BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.08),
-                          spreadRadius: 0,
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(30),
+                          topRight: Radius.circular(30),
+                        ),
+                      ),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          children: [
+                            // Enhanced Profile Avatar Section
+                            Container(
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF4CAF50), Color(0xFF388E3C)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(24),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 10),
                         ),
                       ],
                     ),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
+                                  Container(
+                                    width: 90,
+                                    height: 90,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(alpha: 0.15),
+                                          blurRadius: 15,
+                                          offset: const Offset(0, 8),
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Icon(
+                                      Icons.person,
+                                      size: 45,
+                                      color: Color(0xFF4CAF50),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
                             Text(
                               '${_firstNameController.text} ${_lastNameController.text}'.trim().isEmpty 
                                   ? 'User' 
                                   : '${_firstNameController.text} ${_lastNameController.text}'.trim(),
                               style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            ElevatedButton(
-                              onPressed: _isLoading ? null : _saveProfile,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2196F3),
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                elevation: 0,
-                              ),
-                              child: _isLoading
-                                  ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                                  : const Text(
-                                      'SAVE',
-                                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _emailController.text,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.white70,
                                     ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
-                        // User Unique ID
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF0F8FF),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE3F2FD)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.fingerprint, color: Color(0xFF2196F3), size: 20),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Unique ID',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Color(0xFF666666),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    Text(
-                                      _uniqueId,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        color: Color(0xFF2196F3),
-                                        fontWeight: FontWeight.bold,
-                                        fontFamily: 'monospace',
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        // User Points
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF1F8E9),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE8F5E9)),
-                          ),
-                          child: Row(
-                            children: [
-                              Image.asset(
-                                'assets/coins.png',
-                                width: 24,
-                                height: 24,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Total Points',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Color(0xFF666666),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    Text(
-                                      _userPoints.toString(),
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        color: Color(0xFF4CAF50),
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        // Error Message
-                        if (_errorMessage != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: Text(
-                              _errorMessage!,
-                              style: const TextStyle(color: Colors.red, fontSize: 14),
-                              textAlign: TextAlign.center,
                             ),
-                          ),
-                        // Profile Image Placeholder
-                        Center(
-                          child: Column(
+                            
+                            const SizedBox(height: 24),
+                            
+                            // Enhanced Stats Cards
+                            Row(
                             children: [
+                              Expanded(
+                                  child: _buildEnhancedStatCard(
+                                    icon: Icons.fingerprint,
+                                    title: 'Unique ID',
+                                    value: _uniqueId,
+                                    color: const Color(0xFF2196F3),
+                                    bgColor: const Color(0xFFE3F2FD),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildEnhancedStatCard(
+                                    icon: Icons.stars,
+                                    title: 'Points',
+                                    value: _userPoints.toString(),
+                                    color: const Color(0xFF4CAF50),
+                                    bgColor: const Color(0xFFE8F5E9),
+                                    isPoints: true,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                            
+                            const SizedBox(height: 32),
+                            
+                            // Enhanced Error Message
+                            if (_errorMessage != null)
+                        Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                                  color: Colors.red.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                                    const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                      child: Text(
+                                        _errorMessage!,
+                                        style: const TextStyle(color: Colors.red, fontSize: 14),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            
+                            if (_errorMessage != null) const SizedBox(height: 24),
+                            
+                            // Enhanced Form Fields
+                            _buildEnhancedInputField(
+                              label: 'First Name',
+                              controller: _firstNameController,
+                              hint: 'Enter your first name',
+                              icon: Icons.person_outline,
+                            ),
+                            
+                            const SizedBox(height: 20),
+                            
+                            _buildEnhancedInputField(
+                              label: 'Last Name',
+                              controller: _lastNameController,
+                              hint: 'Enter your last name',
+                              icon: Icons.person_outline,
+                            ),
+                            
+                            const SizedBox(height: 20),
+                            
+                            _buildEnhancedInputField(
+                              label: 'Email',
+                              controller: _emailController,
+                              hint: 'Enter your email',
+                              icon: Icons.email_outlined,
+                              enabled: false,
+                            ),
+                            
+                            const SizedBox(height: 40),
+                            
+                            // Enhanced Sign Out Button
                               Container(
-                                width: 100,
-                                height: 100,
+                              width: double.infinity,
+                              height: 56,
                                 decoration: BoxDecoration(
-                                  color: Colors.grey[200],
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.grey.shade300, width: 2),
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.red.withValues(alpha: 0.1),
+                                    Colors.red.withValues(alpha: 0.05),
+                                  ],
                                 ),
-                                child: const Icon(Icons.person, size: 60, color: Colors.black54),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
                               ),
-                              const SizedBox(height: 10),
-                              const Text(
-                                'Upload Image',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey,
-                                  fontWeight: FontWeight.w500,
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: _isLoading ? null : _signOut,
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.logout, color: Colors.red, size: 20),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Sign Out',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          color: Colors.red,
+                                          fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 32),
-                        // First Name Field
-                        _buildProfileInputField('First Name', _firstNameController, 'Enter your first name'),
-                        const SizedBox(height: 20),
-                        // Last Name Field
-                        _buildProfileInputField('Last Name', _lastNameController, 'Enter your last name'),
-                        const SizedBox(height: 20),
-                        // Email Field (Read-only)
-                        _buildProfileInputField('Email', _emailController, 'Enter your email', enabled: false),
-                        const SizedBox(height: 20),
-                        // Contact Number Field
-                        _buildProfileInputField('Contact Number', _contactNumberController, 'Enter your contact number'),
-                        const SizedBox(height: 40),
-                        // Sign Out Button
-                        Align(
-                          alignment: Alignment.bottomRight,
-                          child: GestureDetector(
-                            onTap: _isLoading ? null : _signOut,
-                            child: const Text(
-                              'Sign Out',
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.red,
-                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                          ),
+                            
+                            const SizedBox(height: 20),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
             ],
           ),
         ),
@@ -377,33 +440,153 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildProfileInputField(String label, TextEditingController controller, String hint, {bool obscureText = false, bool enabled = true}) {
+  Widget _buildAnimatedButton({
+    required VoidCallback? onPressed,
+    required IconData? icon,
+    required Color color,
+    bool isLoading = false,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            child: isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : Icon(icon, color: Colors.white, size: 24),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEnhancedStatCard({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color color,
+    required Color bgColor,
+    bool isPoints = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: color, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: color.withValues(alpha: 0.7),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: isPoints ? 20 : 18,
+              color: color,
+              fontWeight: FontWeight.bold,
+              fontFamily: isPoints ? null : 'monospace',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEnhancedInputField({
+    required String label,
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+    bool enabled = true,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Row(
+          children: [
+            Icon(icon, color: const Color(0xFF4CAF50), size: 18),
+            const SizedBox(width: 8),
         Text(
           label,
           style: const TextStyle(
             fontSize: 14,
-            fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w600,
             color: Colors.black87,
           ),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
-            color: Colors.grey[100],
-            borderRadius: BorderRadius.circular(10),
+            color: enabled ? Colors.grey[50] : Colors.grey[100],
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: enabled ? Colors.grey[300]! : Colors.grey[400]!,
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: TextField(
             controller: controller,
-            obscureText: obscureText,
             enabled: enabled,
             decoration: InputDecoration(
               hintText: hint,
-              hintStyle: const TextStyle(color: Colors.black54),
+              hintStyle: TextStyle(
+                color: Colors.grey[500],
+                fontSize: 14,
+              ),
               border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             ),
           ),
         ),
@@ -413,10 +596,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
+    _animationController.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
     _emailController.dispose();
-    _contactNumberController.dispose();
     super.dispose();
   }
 }

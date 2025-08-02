@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/user_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -11,8 +12,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  String? _userFirstName;
-  int _userPoints = 0;
+  String? _userUsername;
   bool _isLoading = true;
 
   @override
@@ -24,7 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Refresh points when screen becomes active (e.g., after returning from rewards screen)
+    // Refresh username when screen becomes active
     _fetchUserData();
   }
 
@@ -35,24 +35,39 @@ class _HomeScreenState extends State<HomeScreen> {
     
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      // Get user data from Firestore
-      final userData = await UserService.getCurrentUserData();
-      final points = await UserService.getUserPoints();
+      // Get username from Firestore
+      final username = await UserService.getUserUsername();
       
-      final displayName = user.displayName ?? '';
-      final nameParts = displayName.split(' ');
       setState(() {
-        _userFirstName = nameParts.isNotEmpty ? nameParts[0] : 'User';
-        _userPoints = points;
+        _userUsername = username.isNotEmpty ? username : 'User';
         _isLoading = false;
       });
     } else {
       setState(() {
-        _userFirstName = 'User';
-        _userPoints = 0;
+        _userUsername = 'User';
         _isLoading = false;
       });
     }
+  }
+
+  // Get real-time points stream
+  Stream<int> _getPointsStream() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return Stream.value(0);
+    }
+
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.exists) {
+        final data = snapshot.data() as Map<String, dynamic>;
+        return data['points'] ?? 0;
+      }
+      return 0;
+    });
   }
 
   // Format points with commas for better readability
@@ -141,7 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Welcome, ${_userFirstName ?? 'User'}!',
+                                      'Welcome, ${_userUsername ?? 'User'}!',
                                       style: const TextStyle(
                                         fontSize: 28,
                                         fontWeight: FontWeight.w800,
@@ -151,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     const Text(
-                                      'Let’s make a greener world!',
+                                      'Let\'s make a greener world!',
                                       style: TextStyle(
                                         fontSize: 15,
                                         color: Colors.white70,
@@ -179,31 +194,39 @@ class _HomeScreenState extends State<HomeScreen> {
                                   height: 30,
                                 ),
                                 const SizedBox(width: 10),
-                                _isLoading
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF388E3C)),
+                                StreamBuilder<int>(
+                                  stream: _getPointsStream(),
+                                  builder: (context, snapshot) {
+                                    if (snapshot.connectionState == ConnectionState.waiting && _isLoading) {
+                                      return const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF388E3C)),
+                                        ),
+                                      );
+                                    }
+                                    
+                                    final points = snapshot.data ?? 0;
+                                    return Text(
+                                      _formatPoints(points),
+                                      style: const TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF388E3C),
+                                        letterSpacing: 0.5,
                                       ),
-                                    )
-                                  : Text(
-                                    _formatPoints(_userPoints),
-                                    style: const TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF388E3C),
-                                    letterSpacing: 0.5,
-                                  ),
+                                    );
+                                  },
                                 ),
                                 const SizedBox(width: 8),
                                 const Text(
-                                  'Points',
+                                  'points',
                                   style: TextStyle(
-                                    fontSize: 16,
-                                    color: Color(0xFF222222),
-                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: Color(0xFF388E3C),
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ],
