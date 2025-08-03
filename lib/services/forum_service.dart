@@ -6,55 +6,146 @@ class ForumService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Create a new forum post
   static Future<bool> createPost({
     required String content,
     required String category,
+    String? imageBase64,
   }) async {
+    Map<String, dynamic>? postData;
     try {
       final user = _auth.currentUser;
-      if (user == null) return false;
+      if (user == null) {
+        print('Error: No authenticated user found');
+        return false;
+      }
+      print('Authenticated user: UID=${user.uid}, Email=${user.email}');
 
-      // Get username from Firestore
       final username = await UserService.getUserUsername();
       final displayName = username.isNotEmpty ? username : (user.displayName ?? 'Anonymous User');
+      final trimmedContent = content.trim();
+      final trimmedCategory = category.trim();
 
-      await _firestore.collection('forum_posts').add({
+      if (trimmedContent.isEmpty || trimmedContent.length > 500) {
+        print('Error: Content must be between 1 and 500 characters');
+        return false;
+      }
+      if (trimmedCategory.isEmpty) {
+        print('Error: Category must not be empty');
+        return false;
+      }
+      if (imageBase64 != null && imageBase64.length > 1 * 1024 * 1024) {
+        print('Error: Image size exceeds 1MB');
+        return false;
+      }
+
+      postData = {
         'userId': user.uid,
         'userName': displayName,
         'userEmail': user.email ?? '',
-        'content': content,
-        'category': category,
+        'content': trimmedContent,
+        'category': trimmedCategory,
+        'imageBase64': imageBase64,
         'upvotes': 0,
         'downvotes': 0,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
+      print('Creating post with data: $postData');
 
+      await _firestore.collection('forum_posts').add(postData);
+      print('Post created successfully');
       return true;
     } catch (e) {
       print('Error creating forum post: $e');
+      if (e is FirebaseException && e.code == 'permission-denied') {
+        print('Permission denied. Check Firestore rules and data: ${postData ?? "No post data available"}');
+      }
       return false;
     }
   }
 
-  // Get all forum posts with real-time updates
-  static Stream<QuerySnapshot> getForumPosts() {
-    return _firestore
+  static Future<bool> updatePost({
+    required String postId,
+    required String content,
+    required String category,
+    String? imageBase64,
+  }) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        print('Error: No authenticated user found');
+        return false;
+      }
+
+      final postDoc = await _firestore.collection('forum_posts').doc(postId).get();
+      if (!postDoc.exists) {
+        print('Post does not exist: $postId');
+        return false;
+      }
+
+      final postData = postDoc.data() as Map<String, dynamic>;
+      if (postData['userId'] != user.uid) {
+        print('User does not have permission to edit this post');
+        return false;
+      }
+
+      final trimmedContent = content.trim();
+      final trimmedCategory = category.trim();
+
+      if (trimmedContent.isEmpty || trimmedContent.length > 500) {
+        print('Error: Content must be between 1 and 500 characters');
+        return false;
+      }
+      if (trimmedCategory.isEmpty) {
+        print('Error: Category must not be empty');
+        return false;
+      }
+      if (imageBase64 != null && imageBase64.length > 1 * 1024 * 1024) {
+        print('Error: Image size exceeds 1MB');
+        return false;
+      }
+
+      await _firestore.collection('forum_posts').doc(postId).update({
+        'content': trimmedContent,
+        'category': trimmedCategory,
+        'imageBase64': imageBase64,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      print('Post updated successfully');
+      return true;
+    } catch (e) {
+      print('Error updating forum post: $e');
+      return false;
+    }
+  }
+
+  static Stream<QuerySnapshot> getForumPosts({int limit = 20, DocumentSnapshot? startAfter}) {
+    var query = _firestore
         .collection('forum_posts')
         .orderBy('createdAt', descending: true)
-        .snapshots();
+        .limit(limit);
+
+    if (startAfter != null) {
+      query = query.startAfterDocument(startAfter);
+    }
+
+    return query.snapshots();
   }
 
-  // Get forum posts by category - simplified to avoid index issues
-  static Stream<QuerySnapshot> getForumPostsByCategory(String category) {
-    return _firestore
+  static Stream<QuerySnapshot> getForumPostsByCategory(String category, {int limit = 20, DocumentSnapshot? startAfter}) {
+    var query = _firestore
         .collection('forum_posts')
         .where('category', isEqualTo: category)
-        .snapshots();
+        .orderBy('createdAt', descending: true)
+        .limit(limit);
+
+    if (startAfter != null) {
+      query = query.startAfterDocument(startAfter);
+    }
+
+    return query.snapshots();
   }
 
-  // Get categories
   static List<String> getCategories() {
     return [
       'General Discussion',
@@ -67,19 +158,28 @@ class ForumService {
     ];
   }
 
-  // Enhanced search that works with current Firestore rules
-  static Stream<QuerySnapshot> searchForumPosts(String searchQuery) {
+  static Stream<QuerySnapshot> searchForumPosts(String searchQuery, {int limit = 20}) {
     if (searchQuery.isEmpty) {
-      return getForumPosts();
+      return getForumPosts(limit: limit);
     }
-    
-    // Use a simple approach that doesn't require complex indexes
+
     return _firestore
         .collection('forum_posts')
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
         .snapshots();
   }
 
-  // Upvote a post
+  static Future<bool> hasUserVoted(String postId, String userId, String voteType) async {
+    final voteDoc = await _firestore
+        .collection('forum_posts')
+        .doc(postId)
+        .collection('votes')
+        .doc(userId)
+        .get();
+    return voteDoc.exists && voteDoc.data()?['voteType'] == voteType;
+  }
+
   static Future<bool> upvotePost(String postId) async {
     try {
       final user = _auth.currentUser;
@@ -88,27 +188,59 @@ class ForumService {
         return false;
       }
 
-      // Check if post exists first
       final postDoc = await _firestore.collection('forum_posts').doc(postId).get();
       if (!postDoc.exists) {
         print('Post does not exist: $postId');
         return false;
       }
 
-      await _firestore.collection('forum_posts').doc(postId).update({
-        'upvotes': FieldValue.increment(1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      final hasUpvoted = await hasUserVoted(postId, user.uid, 'upvote');
+      final hasDownvoted = await hasUserVoted(postId, user.uid, 'downvote');
 
-      print('Successfully upvoted post: $postId');
-      return true;
+      return await _firestore.runTransaction<bool>((transaction) async {
+        final postRef = _firestore.collection('forum_posts').doc(postId);
+        final voteRef = postRef.collection('votes').doc(user.uid);
+
+        if (hasUpvoted) {
+          // User already upvoted, so remove the upvote
+          transaction.delete(voteRef);
+          transaction.update(postRef, {
+            'upvotes': FieldValue.increment(-1),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } else {
+          // User hasn't upvoted, so add upvote and remove downvote if exists
+          transaction.set(voteRef, {
+            'userId': user.uid,
+            'voteType': 'upvote',
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+          transaction.update(postRef, {
+            'upvotes': FieldValue.increment(1),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          if (hasDownvoted) {
+            transaction.delete(voteRef); // Delete existing vote
+            transaction.update(postRef, {
+              'downvotes': FieldValue.increment(-1),
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+            // Re-add upvote after deleting downvote
+            transaction.set(voteRef, {
+              'userId': user.uid,
+              'voteType': 'upvote',
+              'createdAt': FieldValue.serverTimestamp(),
+            });
+          }
+        }
+        return true;
+      });
     } catch (e) {
       print('Error upvoting post: $e');
       return false;
     }
   }
 
-  // Downvote a post
   static Future<bool> downvotePost(String postId) async {
     try {
       final user = _auth.currentUser;
@@ -117,27 +249,59 @@ class ForumService {
         return false;
       }
 
-      // Check if post exists first
       final postDoc = await _firestore.collection('forum_posts').doc(postId).get();
       if (!postDoc.exists) {
         print('Post does not exist: $postId');
         return false;
       }
 
-      await _firestore.collection('forum_posts').doc(postId).update({
-        'downvotes': FieldValue.increment(1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      final hasUpvoted = await hasUserVoted(postId, user.uid, 'upvote');
+      final hasDownvoted = await hasUserVoted(postId, user.uid, 'downvote');
 
-      print('Successfully downvoted post: $postId');
-      return true;
+      return await _firestore.runTransaction<bool>((transaction) async {
+        final postRef = _firestore.collection('forum_posts').doc(postId);
+        final voteRef = postRef.collection('votes').doc(user.uid);
+
+        if (hasDownvoted) {
+          // User already downvoted, so remove the downvote
+          transaction.delete(voteRef);
+          transaction.update(postRef, {
+            'downvotes': FieldValue.increment(-1),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } else {
+          // User hasn't downvoted, so add downvote and remove upvote if exists
+          transaction.set(voteRef, {
+            'userId': user.uid,
+            'voteType': 'downvote',
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+          transaction.update(postRef, {
+            'downvotes': FieldValue.increment(1),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          if (hasUpvoted) {
+            transaction.delete(voteRef); // Delete existing vote
+            transaction.update(postRef, {
+              'upvotes': FieldValue.increment(-1),
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+            // Re-add downvote after deleting upvote
+            transaction.set(voteRef, {
+              'userId': user.uid,
+              'voteType': 'downvote',
+              'createdAt': FieldValue.serverTimestamp(),
+            });
+          }
+        }
+        return true;
+      });
     } catch (e) {
       print('Error downvoting post: $e');
       return false;
     }
   }
 
-  // Add comment to a post
   static Future<bool> addComment({
     required String postId,
     required String comment,
@@ -146,7 +310,6 @@ class ForumService {
       final user = _auth.currentUser;
       if (user == null) return false;
 
-      // Get username from Firestore
       final username = await UserService.getUserUsername();
       final displayName = username.isNotEmpty ? username : (user.displayName ?? 'Anonymous User');
 
@@ -168,17 +331,21 @@ class ForumService {
     }
   }
 
-  // Get comments for a post
-  static Stream<QuerySnapshot> getComments(String postId) {
-    return _firestore
+  static Stream<QuerySnapshot> getComments(String postId, {int limit = 20, DocumentSnapshot? startAfter}) {
+    var query = _firestore
         .collection('forum_posts')
         .doc(postId)
         .collection('comments')
         .orderBy('createdAt', descending: false)
-        .snapshots();
+        .limit(limit);
+
+    if (startAfter != null) {
+      query = query.startAfterDocument(startAfter);
+    }
+
+    return query.snapshots();
   }
 
-  // Delete a post (only by the author)
   static Future<bool> deletePost(String postId) async {
     try {
       final user = _auth.currentUser;
@@ -190,7 +357,20 @@ class ForumService {
       final postData = postDoc.data() as Map<String, dynamic>;
       if (postData['userId'] != user.uid) return false;
 
-      await _firestore.collection('forum_posts').doc(postId).delete();
+      await _firestore.runTransaction((transaction) async {
+        final voteDocs = await _firestore.collection('forum_posts').doc(postId).collection('votes').get();
+        for (var doc in voteDocs.docs) {
+          transaction.delete(doc.reference);
+        }
+
+        final commentDocs = await _firestore.collection('forum_posts').doc(postId).collection('comments').get();
+        for (var doc in commentDocs.docs) {
+          transaction.delete(doc.reference);
+        }
+
+        transaction.delete(_firestore.collection('forum_posts').doc(postId));
+      });
+
       return true;
     } catch (e) {
       print('Error deleting post: $e');
@@ -198,7 +378,6 @@ class ForumService {
     }
   }
 
-  // Report a post
   static Future<bool> reportPost({
     required String postId,
     required String reason,
@@ -206,6 +385,14 @@ class ForumService {
     try {
       final user = _auth.currentUser;
       if (user == null) return false;
+
+      final existingReport = await _firestore
+          .collection('reports')
+          .where('postId', isEqualTo: postId)
+          .where('reportedBy', isEqualTo: user.uid)
+          .get();
+
+      if (existingReport.docs.isNotEmpty) return false;
 
       await _firestore.collection('reports').add({
         'postId': postId,
@@ -221,4 +408,4 @@ class ForumService {
       return false;
     }
   }
-} 
+}

@@ -17,27 +17,58 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _errorMessage;
 
   Future<void> _signInWithEmail() async {
+    if (_emailController.text.trim().isEmpty ||
+        _passwordController.text.trim().isEmpty) {
+      setState(() {
+        _errorMessage = 'Please fill in all fields';
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
+
     try {
+      print('Attempting login with email: ${_emailController.text.trim()}');
       final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
-      
-      // Create or get user data in Firestore
+
       if (userCredential.user != null) {
+        print('User logged in: UID=${userCredential.user!.uid}');
         await UserService.createOrGetUser(userCredential.user!);
+        print('User data retrieved or created in Firestore');
       }
-      
+
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/home');
       }
     } on FirebaseAuthException catch (e) {
+      String errorMessage;
+      switch (e.code) {
+        case 'user-not-found':
+          errorMessage = 'No user found with this email. Please sign up.';
+          break;
+        case 'wrong-password':
+          errorMessage = 'Incorrect password. Please try again.';
+          break;
+        case 'invalid-email':
+          errorMessage = 'The email address is not valid.';
+          break;
+        default:
+          errorMessage = e.message ?? 'An error occurred during login.';
+      }
+      print('Login error: $errorMessage');
       setState(() {
-        _errorMessage = e.message;
+        _errorMessage = errorMessage;
+      });
+    } catch (e) {
+      print('Unexpected error during login: $e');
+      setState(() {
+        _errorMessage = 'An unexpected error occurred. Please try again.';
       });
     } finally {
       setState(() {
@@ -293,17 +324,17 @@ class _LoginScreenState extends State<LoginScreen> {
     required IconData icon,
   }) {
     return Container(
-        decoration: BoxDecoration(
+      decoration: BoxDecoration(
         color: const Color(0xFFF5F5F5),
         borderRadius: BorderRadius.circular(25),
-          boxShadow: [
-            BoxShadow(
+        boxShadow: [
+          BoxShadow(
             color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 6,
+            blurRadius: 6,
             offset: const Offset(0, 2),
-            ),
-          ],
-        ),
+          ),
+        ],
+      ),
       child: TextField(
         controller: controller,
         obscureText: _obscurePassword,

@@ -19,11 +19,32 @@ class CommentsWidget extends StatefulWidget {
 class _CommentsWidgetState extends State<CommentsWidget> {
   final _commentController = TextEditingController();
   bool _isLoading = false;
+  final ScrollController _scrollController = ScrollController();
+  DocumentSnapshot? _lastComment;
+  bool _isFetchingMore = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200 && !_isFetchingMore) {
+        _loadMoreComments();
+      }
+    });
+  }
 
   @override
   void dispose() {
     _commentController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadMoreComments() async {
+    if (_isFetchingMore) return;
+    setState(() => _isFetchingMore = true);
+    // Fetch more comments (handled in StreamBuilder)
+    setState(() => _isFetchingMore = false);
   }
 
   Future<void> _addComment() async {
@@ -98,7 +119,6 @@ class _CommentsWidgetState extends State<CommentsWidget> {
       ),
       child: Column(
         children: [
-          // Header
           Container(
             padding: const EdgeInsets.all(20),
             decoration: const BoxDecoration(
@@ -126,8 +146,6 @@ class _CommentsWidgetState extends State<CommentsWidget> {
               ],
             ),
           ),
-          
-          // Original Post Preview
           Container(
             padding: const EdgeInsets.all(16),
             margin: const EdgeInsets.all(16),
@@ -160,11 +178,9 @@ class _CommentsWidgetState extends State<CommentsWidget> {
               ],
             ),
           ),
-          
-          // Comments List
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: ForumService.getComments(widget.postId),
+              stream: ForumService.getComments(widget.postId, startAfter: _lastComment),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Center(
@@ -194,7 +210,7 @@ class _CommentsWidgetState extends State<CommentsWidget> {
                   );
                 }
 
-                if (snapshot.connectionState == ConnectionState.waiting) {
+                if (snapshot.connectionState == ConnectionState.waiting && !_isFetchingMore) {
                   return const Center(
                     child: CircularProgressIndicator(
                       color: Color(0xFF4CAF50),
@@ -203,6 +219,9 @@ class _CommentsWidgetState extends State<CommentsWidget> {
                 }
 
                 final comments = snapshot.data?.docs ?? [];
+                if (comments.isNotEmpty) {
+                  _lastComment = comments.last; // Update last comment for pagination
+                }
 
                 if (comments.isEmpty) {
                   return const Center(
@@ -236,9 +255,21 @@ class _CommentsWidgetState extends State<CommentsWidget> {
                 }
 
                 return ListView.builder(
+                  controller: _scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: comments.length,
+                  itemCount: comments.length + (_isFetchingMore ? 1 : 0),
                   itemBuilder: (context, index) {
+                    if (index == comments.length) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(16.0),
+                          child: CircularProgressIndicator(
+                            color: Color(0xFF4CAF50),
+                          ),
+                        ),
+                      );
+                    }
+
                     final comment = comments[index].data() as Map<String, dynamic>;
                     final userName = comment['userName'] ?? 'Anonymous';
                     final commentText = comment['comment'] ?? '';
@@ -313,8 +344,6 @@ class _CommentsWidgetState extends State<CommentsWidget> {
               },
             ),
           ),
-          
-          // Add Comment Section
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -379,4 +408,4 @@ class _CommentsWidgetState extends State<CommentsWidget> {
       ),
     );
   }
-} 
+}

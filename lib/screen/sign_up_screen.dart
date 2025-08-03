@@ -18,31 +18,63 @@ class _SignUpScreenState extends State<SignUpScreen> {
   String? _errorMessage;
 
   Future<void> _signUpWithEmail() async {
+    if (_usernameController.text.trim().isEmpty ||
+        _emailController.text.trim().isEmpty ||
+        _passwordController.text.trim().isEmpty) {
+      setState(() {
+        _errorMessage = 'Please fill in all fields';
+      });
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
+
     try {
+      print('Attempting signup with email: ${_emailController.text.trim()}');
       final userCredential = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(
-            email: _emailController.text.trim(),
-            password: _passwordController.text.trim(),
-          );
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
 
-      // Create user data in Firestore with unique ID and username
       if (userCredential.user != null) {
+        print('User created in Auth: UID=${userCredential.user!.uid}');
         await UserService.createOrGetUser(
           userCredential.user!,
           username: _usernameController.text.trim(),
         );
+        print('User data saved to Firestore');
       }
 
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/home');
       }
     } on FirebaseAuthException catch (e) {
+      String errorMessage;
+      switch (e.code) {
+        case 'email-already-in-use':
+          errorMessage = 'This email is already registered. Please log in.';
+          break;
+        case 'invalid-email':
+          errorMessage = 'The email address is not valid.';
+          break;
+        case 'weak-password':
+          errorMessage = 'The password is too weak. Use at least 6 characters.';
+          break;
+        default:
+          errorMessage = e.message ?? 'An error occurred during signup.';
+      }
+      print('Signup error: $errorMessage');
       setState(() {
-        _errorMessage = e.message;
+        _errorMessage = errorMessage;
+      });
+    } catch (e) {
+      print('Unexpected error during signup: $e');
+      setState(() {
+        _errorMessage = 'An unexpected error occurred. Please try again.';
       });
     } finally {
       setState(() {

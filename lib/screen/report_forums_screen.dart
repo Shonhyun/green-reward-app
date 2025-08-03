@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/forum_service.dart';
 import '../widgets/create_post_widget.dart';
 import '../widgets/comments_widget.dart';
+import 'package:flutter/services.dart';
+import 'dart:convert';
 
 class ReportForumScreen extends StatefulWidget {
   const ReportForumScreen({super.key});
@@ -22,6 +24,11 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
   final FirebaseAuth _auth = FirebaseAuth.instance;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+  DocumentSnapshot? _lastDocument;
+  final ScrollController _scrollController = ScrollController();
+  bool _isFetchingMore = false;
+  List<QueryDocumentSnapshot> _posts = [];
+  final Set<String> _postIds = {};
 
   @override
   void initState() {
@@ -34,12 +41,19 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
     _animationController.forward();
+
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200 && !_isFetchingMore) {
+        _loadMorePosts();
+      }
+    });
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _animationController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -48,6 +62,9 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
     setState(() {
       _searchQuery = '';
       _isSearching = false;
+      _lastDocument = null;
+      _posts = [];
+      _postIds.clear();
     });
   }
 
@@ -55,6 +72,9 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
     setState(() {
       _searchQuery = value;
       _isSearching = value.isNotEmpty;
+      _lastDocument = null;
+      _posts = [];
+      _postIds.clear();
     });
   }
 
@@ -62,7 +82,64 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
     setState(() {
       _selectedCategory = category;
       _isFiltering = category != 'All Categories';
+      _lastDocument = null;
+      _posts = [];
+      _postIds.clear();
     });
+  }
+
+  Future<void> _loadMorePosts() async {
+    if (_isFetchingMore) return;
+    setState(() {
+      _isFetchingMore = true;
+    });
+
+    try {
+      Query<Map<String, dynamic>> query;
+      if (_selectedCategory != 'All Categories') {
+        query = FirebaseFirestore.instance
+            .collection('forum_posts')
+            .where('category', isEqualTo: _selectedCategory)
+            .orderBy('createdAt', descending: true)
+            .limit(20);
+      } else {
+        query = FirebaseFirestore.instance
+            .collection('forum_posts')
+            .orderBy('createdAt', descending: true)
+            .limit(20);
+      }
+
+      if (_lastDocument != null) {
+        query = query.startAfterDocument(_lastDocument!);
+      }
+
+      final snapshot = await query.get();
+      final newPosts = snapshot.docs.where((doc) => !_postIds.contains(doc.id)).toList();
+
+      setState(() {
+        _posts.addAll(newPosts);
+        _postIds.addAll(newPosts.map((doc) => doc.id));
+        if (newPosts.isNotEmpty) {
+          _lastDocument = newPosts.last;
+        }
+        _isFetchingMore = false;
+      });
+    } catch (e) {
+      print('Error loading more posts: $e');
+      setState(() {
+        _isFetchingMore = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error loading more posts: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    }
   }
 
   void _showCreatePost() {
@@ -72,10 +149,45 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
       backgroundColor: Colors.transparent,
       builder: (context) => CreatePostWidget(
         onPostCreated: () {
-          setState(() {});
+          setState(() {
+            _posts = [];
+            _postIds.clear();
+            _lastDocument = null;
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: const Text('Post created successfully! 🎉'),
+              backgroundColor: const Color(0xFF2ECC71),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showEditPost(String postId, String content, String category, {String? imageBase64}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => CreatePostWidget(
+        postId: postId,
+        initialContent: content,
+        initialCategory: category,
+        initialImageBase64: imageBase64,
+        onPostUpdated: () {
+          setState(() {
+            _posts = [];
+            _postIds.clear();
+            _lastDocument = null;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Post updated successfully! 🎉'),
               backgroundColor: const Color(0xFF2ECC71),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
@@ -100,7 +212,7 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
     );
   }
 
-  void _showPostOptions(String postId, String userId, String content) {
+  void _showPostOptions(String postId, String userId, String content, String category, {String? imageBase64}) {
     final currentUser = _auth.currentUser;
     final isAuthor = currentUser?.uid == userId;
 
@@ -128,6 +240,22 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
             ),
             const SizedBox(height: 20),
             if (isAuthor) ...[
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.edit, color: Colors.blue, size: 20),
+                ),
+                title: const Text('Edit Post', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.w600)),
+                subtitle: const Text('Modify your post content'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showEditPost(postId, content, category, imageBase64: imageBase64);
+                },
+              ),
               ListTile(
                 leading: Container(
                   padding: const EdgeInsets.all(8),
@@ -175,7 +303,7 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
               subtitle: const Text('Copy post content to clipboard'),
               onTap: () {
                 Navigator.pop(context);
-                // Copy to clipboard functionality would go here
+                Clipboard.setData(ClipboardData(text: content));
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: const Text('Text copied to clipboard'),
@@ -216,11 +344,16 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
             onPressed: () async {
               Navigator.pop(context);
               setState(() => _isLoading = true);
-              
+
               final success = await ForumService.deletePost(postId);
               setState(() => _isLoading = false);
-              
+
               if (success) {
+                setState(() {
+                  _posts = [];
+                  _postIds.clear();
+                  _lastDocument = null;
+                });
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: const Text('Post deleted successfully'),
@@ -234,7 +367,7 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: const Text('Failed to delete post'),
+                    content: const Text('Failed to delete post. You may not have permission.'),
                     backgroundColor: Colors.red,
                     behavior: SnackBarBehavior.floating,
                     shape: RoundedRectangleBorder(
@@ -309,13 +442,13 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
             onPressed: () async {
               Navigator.pop(context);
               setState(() => _isLoading = true);
-              
+
               final success = await ForumService.reportPost(
                 postId: postId,
                 reason: selectedReason,
               );
               setState(() => _isLoading = false);
-              
+
               if (success) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -330,7 +463,7 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: const Text('Failed to report post'),
+                    content: const Text('Failed to report post. You may have already reported it.'),
                     backgroundColor: Colors.red,
                     behavior: SnackBarBehavior.floating,
                     shape: RoundedRectangleBorder(
@@ -353,11 +486,17 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
 
   Future<void> _upvotePost(String postId) async {
     try {
+      final hasUpvoted = await ForumService.hasUserVoted(postId, _auth.currentUser!.uid, 'upvote');
       final success = await ForumService.upvotePost(postId);
       if (success) {
+        setState(() {
+          _posts = [];
+          _postIds.clear();
+          _lastDocument = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Post upvoted successfully! 👍'),
+            content: Text(hasUpvoted ? 'Upvote removed! 🥳' : 'Upvoted successfully! 👍'),
             backgroundColor: const Color(0xFF2ECC71),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -369,7 +508,7 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Failed to upvote post. Please try again.'),
+            content: const Text('Failed to update vote. Please try again.'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -379,7 +518,6 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
         );
       }
     } catch (e) {
-      print('Error in _upvotePost: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error: ${e.toString()}'),
@@ -395,11 +533,17 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
 
   Future<void> _downvotePost(String postId) async {
     try {
+      final hasDownvoted = await ForumService.hasUserVoted(postId, _auth.currentUser!.uid, 'downvote');
       final success = await ForumService.downvotePost(postId);
       if (success) {
+        setState(() {
+          _posts = [];
+          _postIds.clear();
+          _lastDocument = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Post downvoted successfully! 👎'),
+            content: Text(hasDownvoted ? 'Downvote removed! 🥳' : 'Downvoted successfully! 👎'),
             backgroundColor: Colors.orange,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -411,7 +555,7 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Failed to downvote post. Please try again.'),
+            content: const Text('Failed to update vote. Please try again.'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -421,7 +565,6 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
         );
       }
     } catch (e) {
-      print('Error in _downvotePost: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error: ${e.toString()}'),
@@ -453,52 +596,43 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
 
   Stream<QuerySnapshot> _getPostsStream() {
     try {
+      Query<Map<String, dynamic>> query;
       if (_selectedCategory != 'All Categories') {
-        return ForumService.getForumPostsByCategory(_selectedCategory);
+        query = FirebaseFirestore.instance
+            .collection('forum_posts')
+            .where('category', isEqualTo: _selectedCategory)
+            .orderBy('createdAt', descending: true)
+            .limit(20);
       } else {
-        return ForumService.getForumPosts();
+        query = FirebaseFirestore.instance
+            .collection('forum_posts')
+            .orderBy('createdAt', descending: true)
+            .limit(20);
       }
+
+      return query.snapshots();
     } catch (e) {
       print('Error getting posts stream: $e');
       return Stream.empty();
     }
   }
 
-  // Client-side filtering for search
   List<QueryDocumentSnapshot> _filterPosts(List<QueryDocumentSnapshot> posts, String searchQuery) {
     if (searchQuery.isEmpty) {
       return posts;
     }
-    
+
     final query = searchQuery.toLowerCase();
     return posts.where((doc) {
       final data = doc.data() as Map<String, dynamic>;
       final content = (data['content'] ?? '').toString().toLowerCase();
       final userName = (data['userName'] ?? '').toString().toLowerCase();
       final category = (data['category'] ?? '').toString().toLowerCase();
-      
-      return content.contains(query) || 
-             userName.contains(query) || 
-             category.contains(query);
-    }).toList();
-  }
 
-  // Client-side sorting by creation date
-  List<QueryDocumentSnapshot> _sortPosts(List<QueryDocumentSnapshot> posts) {
-    posts.sort((a, b) {
-      final aData = a.data() as Map<String, dynamic>;
-      final bData = b.data() as Map<String, dynamic>;
-      final aCreatedAt = aData['createdAt'] as Timestamp?;
-      final bCreatedAt = bData['createdAt'] as Timestamp?;
-      
-      if (aCreatedAt == null && bCreatedAt == null) return 0;
-      if (aCreatedAt == null) return 1;
-      if (bCreatedAt == null) return -1;
-      
-      return bCreatedAt.compareTo(aCreatedAt); // Newest first
-    });
-    
-    return posts;
+      return content.contains(query) ||
+          userName.contains(query) ||
+          category.contains(query);
+    }).toList();
   }
 
   String _getEmptyStateMessage() {
@@ -521,6 +655,153 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
     }
   }
 
+  Widget _buildModernForumPostCard({
+    required String postId,
+    required String userName,
+    required String content,
+    required String category,
+    required int upvotes,
+    required int downvotes,
+    required String timeAgo,
+    required String userId,
+    String? imageBase64,
+  }) {
+    final isOwnPost = _auth.currentUser?.uid == userId;
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ListTile(
+              contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              leading: CircleAvatar(
+                backgroundColor: const Color(0xFF2ECC71),
+                child: Text(
+                  userName.isNotEmpty ? userName[0].toUpperCase() : 'A',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ),
+              title: Text(
+                userName,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF333333),
+                ),
+              ),
+              subtitle: Text(
+                '$category • $timeAgo',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF666666),
+                ),
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.more_vert, color: Color(0xFF666666)),
+                onPressed: () {
+                  _showPostOptions(postId, userId, content, category, imageBase64: imageBase64);
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    content,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF333333),
+                    ),
+                  ),
+                  if (imageBase64 != null) ...[
+                    const SizedBox(height: 12),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(
+                        base64Decode(imageBase64),
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: 200,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          height: 200,
+                          color: Colors.grey[200],
+                          child: const Center(
+                            child: Text(
+                              'Failed to load image',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          Icons.thumb_up,
+                          color: upvotes > 0 ? const Color(0xFF2ECC71) : Colors.grey,
+                          size: 20,
+                        ),
+                        onPressed: () => _upvotePost(postId),
+                      ),
+                      Text(
+                        upvotes.toString(),
+                        style: TextStyle(
+                          color: upvotes > 0 ? const Color(0xFF2ECC71) : Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      IconButton(
+                        icon: Icon(
+                          Icons.thumb_down,
+                          color: downvotes > 0 ? Colors.orange : Colors.grey,
+                          size: 20,
+                        ),
+                        onPressed: () => _downvotePost(postId),
+                      ),
+                      Text(
+                        downvotes.toString(),
+                        style: TextStyle(
+                          color: downvotes > 0 ? Colors.orange : Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.comment, color: Colors.grey, size: 20),
+                    onPressed: () => _showComments(postId, content),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final categories = ['All Categories', ...ForumService.getCategories()];
@@ -536,7 +817,6 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Modern Header
               Container(
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
@@ -554,7 +834,6 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
                 ),
                 child: Column(
                   children: [
-                    // Top Bar
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                       child: Row(
@@ -611,8 +890,6 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
                         ],
                       ),
                     ),
-                    
-                    // Search Bar
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
                       child: Container(
@@ -650,64 +927,52 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
                   ],
                 ),
               ),
-              
-              // Content Area
               Expanded(
                 child: Container(
                   margin: const EdgeInsets.fromLTRB(20, 20, 20, 0),
                   child: Column(
                     children: [
-                      // Category Filter
-                      SizedBox(
-                        height: 45,
-                        child: ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: categories.length,
-                          itemBuilder: (context, index) {
-                            final category = categories[index];
-                            final isSelected = category == _selectedCategory;
-                            
-                            return Container(
-                              margin: const EdgeInsets.only(right: 12),
-                              child: FilterChip(
-                                label: Text(
-                                  category,
-                                  style: TextStyle(
-                                    color: isSelected ? Colors.white : const Color(0xFF666666),
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 20),
+                        child: DropdownButtonFormField<String>(
+                          value: _selectedCategory,
+                          decoration: InputDecoration(
+                            labelText: 'Category',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
+                          items: categories.map((category) {
+                            return DropdownMenuItem<String>(
+                              value: category,
+                              child: Text(
+                                category,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                selected: isSelected,
-                                onSelected: (selected) {
-                                  if (selected) {
-                                    _onCategoryChanged(category);
-                                  }
-                                },
-                                backgroundColor: Colors.white,
-                                selectedColor: const Color(0xFF2ECC71),
-                                side: BorderSide(
-                                  color: isSelected ? Colors.white : Colors.grey.shade300,
-                                  width: 1.5,
-                                ),
-                                elevation: isSelected ? 4 : 1,
-                                shadowColor: Colors.black.withOpacity(0.1),
                               ),
                             );
+                          }).toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              _onCategoryChanged(value);
+                            }
                           },
+                          isExpanded: true,
+                          dropdownColor: Colors.white,
+                          icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF2ECC71)),
                         ),
                       ),
-                      
                       const SizedBox(height: 20),
-                      
-                      // Forum Posts List
                       Expanded(
                         child: StreamBuilder<QuerySnapshot>(
                           stream: _getPostsStream(),
                           builder: (context, snapshot) {
                             if (snapshot.hasError) {
-                              print('StreamBuilder error: ${snapshot.error}');
                               return Center(
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -760,7 +1025,7 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
                               );
                             }
 
-                            if (snapshot.connectionState == ConnectionState.waiting) {
+                            if (snapshot.connectionState == ConnectionState.waiting && _posts.isEmpty) {
                               return Center(
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -790,11 +1055,18 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
                               );
                             }
 
-                            final posts = snapshot.data?.docs ?? [];
-                            final filteredPosts = _filterPosts(posts, _searchQuery);
-                            final sortedPosts = _sortPosts(filteredPosts);
+                            if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+                              final newPosts = snapshot.data!.docs.where((doc) => !_postIds.contains(doc.id)).toList();
+                              _posts.addAll(newPosts);
+                              _postIds.addAll(newPosts.map((doc) => doc.id));
+                              if (newPosts.isNotEmpty) {
+                                _lastDocument = newPosts.last;
+                              }
+                            }
 
-                            if (sortedPosts.isEmpty) {
+                            final filteredPosts = _filterPosts(_posts, _searchQuery);
+
+                            if (filteredPosts.isEmpty) {
                               return Center(
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -806,9 +1078,9 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
                                         borderRadius: BorderRadius.circular(50),
                                       ),
                                       child: Icon(
-                                        _searchQuery.isNotEmpty 
-                                            ? Icons.search_off 
-                                            : _isFiltering 
+                                        _searchQuery.isNotEmpty
+                                            ? Icons.search_off
+                                            : _isFiltering
                                                 ? Icons.filter_list_off
                                                 : Icons.forum_outlined,
                                         color: Colors.grey[400],
@@ -878,14 +1150,27 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
                             }
 
                             return ListView.builder(
+                              controller: _scrollController,
                               padding: const EdgeInsets.only(bottom: 20),
-                              itemCount: sortedPosts.length,
+                              itemCount: filteredPosts.length + (_isFetchingMore ? 1 : 0),
                               itemBuilder: (context, index) {
-                                final post = sortedPosts[index].data() as Map<String, dynamic>;
-                                final postId = sortedPosts[index].id;
+                                if (index == filteredPosts.length) {
+                                  return const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(16.0),
+                                      child: CircularProgressIndicator(
+                                        color: Color(0xFF2ECC71),
+                                      ),
+                                    ),
+                                  );
+                                }
+
+                                final post = filteredPosts[index].data() as Map<String, dynamic>;
+                                final postId = filteredPosts[index].id;
                                 final userName = post['userName'] ?? 'Anonymous';
                                 final content = post['content'] ?? '';
                                 final category = post['category'] ?? 'General Discussion';
+                                final imageBase64 = post['imageBase64'] as String?;
                                 final upvotes = post['upvotes'] ?? 0;
                                 final downvotes = post['downvotes'] ?? 0;
                                 final createdAt = post['createdAt'] as Timestamp?;
@@ -901,6 +1186,7 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
                                   downvotes: downvotes,
                                   timeAgo: timeAgo,
                                   userId: userId,
+                                  imageBase64: imageBase64,
                                 );
                               },
                             );
@@ -913,326 +1199,6 @@ class _ReportForumScreenState extends State<ReportForumScreen> with TickerProvid
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModernForumPostCard({
-    required String postId,
-    required String userName,
-    required String content,
-    required String category,
-    required int upvotes,
-    required int downvotes,
-    required String timeAgo,
-    required String userId,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            spreadRadius: 0,
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF2ECC71), Color(0xFF27AE60)],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF2ECC71).withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.person,
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        userName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: Color(0xFF333333),
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.access_time,
-                            size: 12,
-                            color: Colors.grey[600],
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              timeAgo,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF2ECC71).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: const Color(0xFF2ECC71).withOpacity(0.3),
-                              ),
-                            ),
-                            child: Text(
-                              category,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Color(0xFF2ECC71),
-                                fontWeight: FontWeight.w600,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                PopupMenuButton<String>(
-                  icon: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.more_vert, 
-                      color: Color(0xFF666666), 
-                      size: 20
-                    ),
-                  ),
-                  onSelected: (value) {
-                    if (value == 'comments') {
-                      _showComments(postId, content);
-                    } else if (value == 'options') {
-                      _showPostOptions(postId, userId, content);
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'comments',
-                      child: Row(
-                        children: [
-                          Icon(Icons.chat_bubble_outline, size: 16),
-                          SizedBox(width: 8),
-                          Text('View Comments'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'options',
-                      child: Row(
-                        children: [
-                          Icon(Icons.more_horiz, size: 16),
-                          SizedBox(width: 8),
-                          Text('More Options'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Content
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8F9FA),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Text(
-                content,
-                style: const TextStyle(
-                  fontSize: 15,
-                  color: Color(0xFF333333),
-                  height: 1.5,
-                ),
-                overflow: TextOverflow.visible,
-              ),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Actions
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      // Upvote
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => _upvotePost(postId),
-                          borderRadius: BorderRadius.circular(20),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF2ECC71).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: const Color(0xFF2ECC71).withOpacity(0.3),
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(
-                                  Icons.arrow_upward,
-                                  size: 18,
-                                  color: Color(0xFF2ECC71),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  '$upvotes',
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Color(0xFF2ECC71),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      
-                      const SizedBox(width: 8),
-                      
-                      // Downvote
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => _downvotePost(postId),
-                          borderRadius: BorderRadius.circular(20),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.grey[100]!,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: Colors.grey[300]!),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.arrow_downward,
-                                  size: 18,
-                                  color: Colors.grey[600],
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  '$downvotes',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey[600],
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(width: 12),
-                
-                // Comment Button
-                Flexible(
-                  child: InkWell(
-                    onTap: () => _showComments(postId, content),
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF2ECC71), Color(0xFF27AE60)],
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF2ECC71).withOpacity(0.3),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.chat_bubble_outline,
-                            size: 18,
-                            color: Colors.white,
-                          ),
-                          SizedBox(width: 6),
-                          Text(
-                            'Comment',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
         ),
       ),
     );
