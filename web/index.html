@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+  <!-- Google Sign-In Client ID -->
+  <meta name="google-signin-client_id" content="1024622849606-xxxxxxxxxxxxxxxx.apps.googleusercontent.com">
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="green_rewards_v1">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <title>green_rewards_v1</title>
+  <link rel="manifest" href="manifest.json">
+  <!-- Google Sign-In Script -->
+  <script src="https://apis.google.com/js/platform.js" async defer></script>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js"></script>
+  <script>
+    // Firebase Configuration
+    var firebaseConfig = {
+      apiKey: "AIzaSyDslKcef5sJQk2LuGegJTVy6nAfM-jxcug",
+      authDomain: "green-rewards-ae329.firebaseapp.com",
+      projectId: "green-rewards-ae329",
+      storageBucket: "green-rewards-ae329.firebasestorage.app",
+      messagingSenderId: "1024622849606",
+      appId: "1:1024622849606:web:xxxxxxxxxxxxxx"
+    };
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+  </script>
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+    <!-- Ensure Flutter Web is loaded -->
+  <script src="main.dart.js" type="application/javascript"></script>
+</body>
+</html>

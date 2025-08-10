@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.example.green_rewards_v1.app-mergeDebugResources-41:/values-v18/values-v18.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\shoun\\scoop\\apps\\gradle\\current\\.gradle\\caches\\8.10.2\\transforms\\b0eebf3850f4ad85294878741e07eb83\\transformed\\appcompat-1.2.0\\res\\values-v18\\values-v18.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "48",
+                        "endOffsets": "99"
+                    }
+                }
+            ]
+        }
+    ]
+}

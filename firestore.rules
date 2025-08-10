@@ -1,0 +1,111 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow authenticated users to read/write their own user document
+    // AND allow reading all user data for leaderboard functionality
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Allow admins to read/write their own admin document
+    match /admins/{adminId} {
+      allow read, write: if request.auth != null && request.auth.uid == adminId;
+    }
+    
+    // Allow admins to read/write all user data (for admin management purposes)
+    match /users/{userId} {
+      allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    // Allow admins to read/write rewards, and authenticated users to read rewards
+    match /rewards/{rewardId} {
+      allow read: if request.auth != null; // Authenticated users can read rewards
+      allow write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); // Admins can write
+    }
+    
+    // Enhanced transaction rules for better query support
+    match /transactions/{transactionId} {
+      // Allow users to read their own transactions (for queries and individual reads)
+      allow read: if request.auth != null && 
+        (resource.data.userId == request.auth.uid || 
+         exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+      
+      // Allow users to create their own transactions
+      allow create: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid;
+      
+      // Allow admins to read, create, update, delete all transactions
+      allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    // Allow forum posts management with enhanced search support
+    match /forum_posts/{postId} {
+      // Allow all authenticated users to read forum posts (including search queries)
+      allow read: if request.auth != null;
+      
+      // Allow users to create posts with their own userId
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.userId;
+      
+      // Allow users to update their own posts, admins can update any
+      // Also allow voting updates (upvotes/downvotes) for all authenticated users
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.userId || 
+         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+         // Allow voting updates (only upvotes and downvotes fields)
+         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['upvotes', 'downvotes', 'updatedAt'])));
+      
+      // Allow users to delete their own posts, admins can delete any
+      allow delete: if request.auth != null && 
+        (request.auth.uid == resource.data.userId || 
+         exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+      
+      // Comments subcollection
+      match /comments/{commentId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null && 
+          request.auth.uid == request.resource.data.userId;
+        allow update, delete: if request.auth != null && 
+          request.auth.uid == resource.data.userId;
+        
+        // Allow admins to manage all comments
+        allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      }
+      
+      // Votes subcollection
+      match /votes/{voteId} {
+        allow read: if request.auth != null;
+        allow create, update: if request.auth != null && 
+          request.auth.uid == request.resource.data.userId;
+        allow delete: if request.auth != null && 
+          request.auth.uid == resource.data.userId;
+        
+        // Allow admins to manage all votes
+        allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      }
+    }
+    
+    // Reports
+    match /reports/{reportId} {
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.reportedBy;
+      
+      // Allow admins to read, write all reports
+      allow read, write: if request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    // Allow access to password_resets collection
+    match /password_resets/{email} {
+      allow write: if true; // Anyone can request a reset code
+      allow read: if true; // Allow reading reset code without authentication
+      allow delete: if request.auth != null && request.auth.token.email == email; // Only authenticated user can delete
+    }
+    
+    // Deny all other access by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+} 
