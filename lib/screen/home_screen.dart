@@ -254,7 +254,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         crossAxisCount: 2,
                         crossAxisSpacing: 18.0,
                         mainAxisSpacing: 18.0,
-                        childAspectRatio: 1.0,
+                        // Make tiles slightly taller on compact screens to avoid vertical overflow
+                        childAspectRatio: _calculateChildAspectRatio(context),
                         children: [
                           _buildFeatureCard(context, 'Rewards', null, '/rewards', customIcon: 'assets/organic.png'),
                           _buildFeatureCard(context, 'Report Forum', Icons.chat_bubble_outline, '/report-forum'),
@@ -278,63 +279,98 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildFeatureCard(BuildContext context, String title, IconData? icon, String? routeName, {String? customIcon}) {
     return GestureDetector(
       onTap: routeName != null ? () => Navigator.pushNamed(context, routeName) : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        padding: const EdgeInsets.all(18.0),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.white.withValues(alpha: 0.95),
-              Colors.white.withValues(alpha: 0.80),
-              const Color(0xFFE8F5E9),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(28),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.10),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF4CAF50).withValues(alpha: 0.13),
-                    const Color(0xFF2E7D32).withValues(alpha: 0.10),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final cardWidth = constraints.maxWidth;
+          // Scale values based on available width to keep the layout responsive
+          final double verticalPadding = (cardWidth * 0.10).clamp(12.0, 20.0);
+          final double iconSize = (cardWidth * 0.28).clamp(36.0, 56.0);
+          final double gap = (cardWidth * 0.08).clamp(10.0, 18.0);
+          final double fontSize = (cardWidth * 0.16).clamp(14.0, 20.0);
+
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            padding: EdgeInsets.symmetric(vertical: verticalPadding, horizontal: 18.0),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.white.withValues(alpha: 0.95),
+                  Colors.white.withValues(alpha: 0.80),
+                  const Color(0xFFE8F5E9),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.10),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
                 ),
-              ),
-              padding: const EdgeInsets.all(14),
-              child: customIcon != null
-                  ? Image.asset(customIcon, width: 44, height: 44)
-                  : Icon(icon, size: 44, color: const Color(0xFF4CAF50)),
+              ],
             ),
-            const SizedBox(height: 18),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF222222),
-                letterSpacing: 0.1,
-              ),
-              textAlign: TextAlign.center,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFF4CAF50).withValues(alpha: 0.13),
+                        const Color(0xFF2E7D32).withValues(alpha: 0.10),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  padding: EdgeInsets.all(iconSize * 0.32),
+                  child: customIcon != null
+                      ? Image.asset(customIcon, width: iconSize, height: iconSize)
+                      : Icon(icon, size: iconSize, color: const Color(0xFF4CAF50)),
+                ),
+                SizedBox(height: gap),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: fontSize,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF222222),
+                      letterSpacing: 0.1,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
+  }
+
+  // Dynamically compute an aspect ratio that gives a bit more height on compact screens
+  double _calculateChildAspectRatio(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    const crossAxisSpacing = 18.0;
+    const horizontalPadding = 20.0 * 2; // from SingleChildScrollView padding
+    const crossAxisCount = 2;
+
+    final usableWidth = size.width - horizontalPadding - crossAxisSpacing;
+    final itemWidth = usableWidth / crossAxisCount;
+
+    // Make height slightly larger than width to comfortably fit icon + text
+    final itemHeight = itemWidth * 1.15;
+    final ratio = itemWidth / itemHeight; // width / height
+
+    // Clamp to reasonable bounds to keep consistent on tablets/landscape
+    return ratio.clamp(0.78, 1.0);
   }
 }
