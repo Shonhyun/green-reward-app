@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     android:minSdkVersion="23">
     <application
-        android:label="green_rewards_v1"
+        android:label="Ecosort User"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
